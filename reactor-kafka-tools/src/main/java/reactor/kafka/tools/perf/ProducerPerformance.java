@@ -35,9 +35,9 @@ import reactor.core.Cancellation;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.kafka.sender.SenderOptions;
+import reactor.kafka.sender.internals.KafkaSender;
 import reactor.util.function.Tuples;
-import reactor.kafka.SenderConfig;
-import reactor.kafka.KafkaSender;
 
 public class ProducerPerformance {
 
@@ -355,7 +355,7 @@ public class ProducerPerformance {
 
         ReactiveProducerPerformance(Map<String, Object> producerPropsOverride, String topic, int numRecords, int recordSize, long throughput) {
             super(producerPropsOverride, topic, numRecords, recordSize, throughput);
-            sender = new KafkaSender<>(new SenderConfig<byte[], byte[]>(producerProps));
+            sender = new KafkaSender<>(new SenderOptions<byte[], byte[]>(producerProps));
         }
 
         public Stats runTest() throws InterruptedException {

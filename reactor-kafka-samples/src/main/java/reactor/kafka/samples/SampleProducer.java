@@ -30,8 +30,8 @@ import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import reactor.kafka.KafkaSender;
-import reactor.kafka.SenderConfig;
+import reactor.kafka.sender.SenderOptions;
+import reactor.kafka.sender.internals.KafkaSender;
 import reactor.util.function.Tuples;
 
 /**
@@ -63,9 +63,9 @@ public class SampleProducer {
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, IntegerSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        SenderConfig<Integer, String> senderConfig = new SenderConfig<>(props);
+        SenderOptions<Integer, String> senderOptions = new SenderOptions<>(props);
 
-        sender = new KafkaSender<>(senderConfig);
+        sender = new KafkaSender<>(senderOptions);
         dateFormat = new SimpleDateFormat("HH:mm:ss:SSS z dd MMM yyyy");
     }
 

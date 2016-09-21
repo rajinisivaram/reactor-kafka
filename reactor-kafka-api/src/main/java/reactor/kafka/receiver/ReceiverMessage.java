@@ -14,33 +14,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.internals;
+package reactor.kafka.receiver;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 
-import reactor.kafka.ConsumerMessage;
-import reactor.kafka.ConsumerOffset;
 
-public class KafkaConsumerMessage<K, V> implements ConsumerMessage<K, V> {
+/**
+ * Represents an incoming message dispatched by {@link KafkaFlux}.
+ *
+ * @param <K> Key type
+ * @param <V> Value type
+ */
+public interface ReceiverMessage<K, V> {
 
-    private final ConsumerRecord<K, V> consumerRecord;
-    private final ConsumerOffset consumerOffset;
+    /**
+     * Returns the Kafka consumer record associated with this instance.
+     */
+    ConsumerRecord<K, V> record();
 
-    public KafkaConsumerMessage(ConsumerRecord<K, V> consumerRecord, ConsumerOffset consumerOffset) {
-        this.consumerRecord = consumerRecord;
-        this.consumerOffset = consumerOffset;
-    }
+    /**
+     * Returns an acknowlegeable offset instance that should be acknowledged after this
+     * message record has been consumed if the ack mode is {@link AckMode#MANUAL_ACK} or
+     * {@link AckMode#MANUAL_COMMIT}. If ack mode is {@value AckMode#MANUAL_COMMIT},
+     * {@link ReceiverOffset#commit()} must be invoked to commit all acknowledged records.
+     */
+    ReceiverOffset offset();
 
-    public ConsumerRecord<K, V> consumerRecord() {
-        return consumerRecord;
-    }
 
-    public ConsumerOffset consumerOffset() {
-        return consumerOffset;
-    }
-
-    @Override
-    public String toString() {
-        return String.valueOf(consumerRecord);
-    }
 }

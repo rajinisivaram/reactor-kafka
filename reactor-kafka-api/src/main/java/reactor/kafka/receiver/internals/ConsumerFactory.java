@@ -14,16 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.internals;
+package reactor.kafka.receiver.internals;
 
 import java.time.Duration;
-import java.util.Map;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.config.ConfigException;
 
-import reactor.kafka.FluxConfig;
+import reactor.kafka.receiver.ReceiverOptions;
 
 public class ConsumerFactory {
 
@@ -32,19 +31,18 @@ public class ConsumerFactory {
     private ConsumerFactory() {
     }
 
-    public <K, V> KafkaConsumer<K, V> createConsumer(FluxConfig<K, V> config) {
+    public <K, V> KafkaConsumer<K, V> createConsumer(ReceiverOptions<K, V> config) {
         return new KafkaConsumer<>(config.consumerProperties());
     }
 
-    public String groupId(FluxConfig<?, ?> config) {
-        return (String) config.consumerProperties().get(ConsumerConfig.GROUP_ID_CONFIG);
+    public String groupId(ReceiverOptions<?, ?> receiverOptions) {
+        return (String) receiverOptions.consumerProperty(ConsumerConfig.GROUP_ID_CONFIG);
     }
 
-    public Duration heartbeatInterval(FluxConfig<?, ?> config) {
-        Map<String, Object> properties = config.consumerProperties();
+    public Duration heartbeatInterval(ReceiverOptions<?, ?> receiverOptions) {
+        Object value = receiverOptions.consumerProperty(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);
         long heartbeatIntervalMs = 0;
-        if (properties.containsKey(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG)) {
-            Object value = properties.get(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);
+        if (value != null) {
             if (value instanceof Long)
                 heartbeatIntervalMs = (Long) value;
             else if (value instanceof String)

@@ -40,10 +40,10 @@ import org.junit.Test;
 import reactor.core.Cancellation;
 import reactor.core.publisher.Flux;
 import reactor.kafka.AbstractKafkaTest;
-import reactor.kafka.FluxConfig;
-import reactor.kafka.KafkaFlux;
-import reactor.kafka.KafkaSender;
-import reactor.kafka.SenderConfig;
+import reactor.kafka.receiver.ReceiverOptions;
+import reactor.kafka.receiver.Receiver;
+import reactor.kafka.sender.SenderOptions;
+import reactor.kafka.sender.internals.KafkaSender;
 import reactor.kafka.tools.mirror.MirrorMaker.TestMirrorMakerMessageHandler;
 import reactor.util.function.Tuples;
 
@@ -97,18 +97,18 @@ public class MirrorMakerTest extends AbstractKafkaTest {
         int count = 0;
         CountDownLatch mirrorLatch = new CountDownLatch(count);
 
-        FluxConfig<byte[], byte[]> testFluxConfig = new FluxConfig<>(consumerProps);
-        testFluxConfig = testFluxConfig.consumerProperty(ConsumerConfig.GROUP_ID_CONFIG, "test");
-        KafkaFlux<byte[], byte[]> testFlux = KafkaFlux.listenOn(testFluxConfig, Collections.singleton(destTopic));
+        ReceiverOptions<byte[], byte[]> receiverOptions = new ReceiverOptions<>(consumerProps);
+        receiverOptions = receiverOptions.consumerProperty(ConsumerConfig.GROUP_ID_CONFIG, "test");
         Semaphore assigned = new Semaphore(0);
-        Cancellation testCancel = testFlux
+        Cancellation testCancel = Receiver.create(receiverOptions)
                 .doOnPartitionsAssigned(p -> assigned.release())
+                .receive(Collections.singleton(destTopic))
                 .subscribe(m -> mirrorLatch.countDown());
         assertTrue("Partitions not assigned", assigned.tryAcquire(10,  TimeUnit.SECONDS));
         rebalanceListener.waitForAssignment();
 
-        SenderConfig<byte[], byte[]> testSenderConfig = new SenderConfig<>(producerProps);
-        KafkaSender<byte[], byte[]> testSender = new KafkaSender<>(testSenderConfig);
+        SenderOptions<byte[], byte[]> testSenderOptions = new SenderOptions<>(producerProps);
+        KafkaSender<byte[], byte[]> testSender = new KafkaSender<>(testSenderOptions);
         testSender.send(Flux.range(1, 100)
                             .map(i -> Tuples.of(new ProducerRecord<>(sourceTopic, new byte[100]), i)))
                   .subscribe();

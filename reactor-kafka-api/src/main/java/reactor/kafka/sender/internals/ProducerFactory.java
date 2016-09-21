@@ -14,10 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.internals;
+package reactor.kafka.sender.internals;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
-import reactor.kafka.SenderConfig;
+
+import reactor.kafka.sender.SenderOptions;
 
 public class ProducerFactory {
 
@@ -26,7 +27,7 @@ public class ProducerFactory {
     private ProducerFactory() {
     }
 
-    public static <K, V> KafkaProducer<K, V> createProducer(SenderConfig<K, V> config) {
-        return new KafkaProducer<>(config.producerProperties());
+    public static <K, V> KafkaProducer<K, V> createProducer(SenderOptions<K, V> senderOptions) {
+        return new KafkaProducer<>(senderOptions.producerProperties());
     }
 }

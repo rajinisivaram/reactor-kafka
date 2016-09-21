@@ -43,10 +43,13 @@ import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import reactor.core.Cancellation;
-import reactor.kafka.KafkaFlux;
-import reactor.kafka.KafkaSender;
-import reactor.kafka.FluxConfig;
-import reactor.kafka.SenderConfig;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.kafka.receiver.ReceiverOptions;
+import reactor.kafka.receiver.Receiver;
+import reactor.kafka.receiver.ReceiverMessage;
+import reactor.kafka.sender.SenderOptions;
+import reactor.kafka.sender.internals.KafkaSender;
 
 public class EndToEndLatency {
 
@@ -306,29 +309,28 @@ public class EndToEndLatency {
 
     static class ReactiveEndToEndLatency extends AbstractEndToEndLatency {
         final KafkaSender<byte[], byte[]> sender;
-        final KafkaFlux<byte[], byte[]> flux;
+        final Flux<ReceiverMessage<byte[], byte[]>> flux;
         final LinkedBlockingQueue<ConsumerRecord<byte[], byte[]>> receiveQueue;
         final Semaphore sendSemaphore = new Semaphore(0);
+        final Semaphore assignSemaphore = new Semaphore(0);
         Cancellation consumerCancel;
 
         ReactiveEndToEndLatency(Map<String, Object> consumerPropsOverride, Map<String, Object> producerPropsOverride, String bootstrapServers, String topic) {
             super(consumerPropsOverride, producerPropsOverride, bootstrapServers, topic);
-            sender = new KafkaSender<>(new SenderConfig<>(producerProps));
-            flux = KafkaFlux.listenOn(new FluxConfig<>(consumerProps),
-                    Collections.singleton(topic));
+            sender = new KafkaSender<>(new SenderOptions<>(producerProps));
+            flux = Receiver.create(new ReceiverOptions<byte[], byte[]>(consumerProps))
+                           .doOnPartitionsAssigned(partitions -> {
+                                   if (assignSemaphore.availablePermits() == 0) {
+                                       partitions.forEach(p -> p.seekToEnd());
+                                       assignSemaphore.release();
+                                   }
+                               })
+                           .receive(Collections.singleton(topic));
             receiveQueue = new LinkedBlockingQueue<>();
             System.out.println("Running latency test using Reactive API, class=" + this.getClass().getName());
         }
         public void initialize() {
-            Semaphore assignSemaphore = new Semaphore(0);
-            consumerCancel = flux
-                    .doOnPartitionsAssigned(partitions -> {
-                            if (assignSemaphore.availablePermits() == 0) {
-                                partitions.forEach(p -> p.seekToEnd());
-                                assignSemaphore.release();
-                            }
-                        })
-                    .subscribe(cr -> receiveQueue.offer(cr.consumerRecord()));
+            consumerCancel = flux.subscribe(cr -> receiveQueue.offer(cr.record()));
             try {
                 if (!assignSemaphore.tryAcquire(10, TimeUnit.SECONDS))
                     throw new IllegalStateException("Timed out waiting for assignment");
@@ -337,8 +339,9 @@ public class EndToEndLatency {
             }
         }
         public Iterator<ConsumerRecord<byte[], byte[]>> sendAndReceive(String topic, byte[] message, long timeout) throws Exception {
-            sender.send(new ProducerRecord<byte[], byte[]>(topic, message))
-                  .subscribe(r -> sendSemaphore.release());
+            sender.sendAll(Mono.just(new ProducerRecord<byte[], byte[]>(topic, message)))
+                  .doOnSuccess(s -> sendSemaphore.release())
+                  .subscribe();
             sendSemaphore.acquire();
             ConsumerRecord<byte[], byte[]> record = receiveQueue.poll(timeout, TimeUnit.MILLISECONDS);
             ArrayList<ConsumerRecord<byte[], byte[]>> recordList = new ArrayList<>();
