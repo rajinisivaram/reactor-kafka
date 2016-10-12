@@ -16,7 +16,6 @@
  **/
 package reactor.kafka.sender.internals;
 
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -114,9 +113,9 @@ public class KafkaSender<K, V> implements Sender<K, V> {
      * @see reactor.kafka.sender.Sender#partitionsFor(java.lang.String)
      */
     @Override
-    public Mono<List<PartitionInfo>> partitionsFor(String topic) {
+    public Flux<PartitionInfo> partitionsFor(String topic) {
         return producerMono
-                .then(producer -> Mono.just(producer.partitionsFor(topic)));
+                .flatMap(producer -> Flux.fromIterable(producer.partitionsFor(topic)));
     }
 
     /**

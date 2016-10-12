@@ -16,8 +16,6 @@
  **/
 package reactor.kafka.sender;
 
-import java.util.List;
-
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.PartitionInfo;
@@ -102,7 +100,7 @@ public interface Sender<K, V> {
      * Returns partition information for the specified topic. This is useful for
      * choosing partitions to which records are sent if default partition assignor is not used.
      */
-    public Mono<List<PartitionInfo>> partitionsFor(String topic);
+    public Flux<PartitionInfo> partitionsFor(String topic);
 
     /**
      * Closes this producer and releases all resources allocated to it.
