@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver;
+package reactor.kafka.inbound;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
@@ -24,7 +24,7 @@ import org.apache.kafka.common.TopicPartition;
  * that can be invoked when partitions are assigned.
  *
  */
-public interface ReceiverPartition {
+public interface Partition {
 
     /**
      * Returns the underlying Kafka topic partition.

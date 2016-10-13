@@ -35,9 +35,9 @@ import reactor.core.Cancellation;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import reactor.kafka.sender.SenderOptions;
-import reactor.kafka.sender.internals.KafkaSender;
-import reactor.util.function.Tuples;
+import reactor.kafka.outbound.OutboundOptions;
+import reactor.kafka.outbound.OutboundRecord;
+import reactor.kafka.outbound.KafkaOutbound;
 
 public class ProducerPerformance {
 
@@ -351,11 +351,11 @@ public class ProducerPerformance {
 
     static class ReactiveProducerPerformance extends AbstractProducerPerformance {
 
-        final KafkaSender<byte[], byte[]> sender;
+        final KafkaOutbound<byte[], byte[]> sender;
 
         ReactiveProducerPerformance(Map<String, Object> producerPropsOverride, String topic, int numRecords, int recordSize, long throughput) {
             super(producerPropsOverride, topic, numRecords, recordSize, throughput);
-            sender = new KafkaSender<>(new SenderOptions<byte[], byte[]>(producerProps));
+            sender = KafkaOutbound.create(OutboundOptions.<byte[], byte[]>create(producerProps));
         }
 
         public Stats runTest() throws InterruptedException {
@@ -377,17 +377,17 @@ public class ProducerPerformance {
 
         Flux<?> senderFlux(CountDownLatch latch, int maxInflight, Scheduler scheduler) {
             Flux<RecordMetadata> flux =
-                sender.send(Flux.range(1, numRecords)
+                sender.sendAll(Flux.range(1, numRecords)
                                 .map(i -> {
                                         long sendStartMs = System.currentTimeMillis();
                                         if (throttler.shouldThrottle(i, sendStartMs))
                                             throttler.throttle();
                                         Callback cb = stats.nextCompletion(sendStartMs, recordSize, stats);
-                                        return Tuples.of(record, cb);
+                                        return OutboundRecord.create(record, cb);
                                     }), scheduler, maxInflight, false)
                       .map(result -> {
-                              RecordMetadata metadata = result.getT1();
-                              Callback cb = result.getT2();
+                              RecordMetadata metadata = result.recordMetadata();
+                              Callback cb = result.correlationMetadata();
                               cb.onCompletion(metadata, null);
                               latch.countDown();
                               return metadata;

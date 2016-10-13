@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver;
+package reactor.kafka.inbound;
 
 import reactor.core.publisher.Mono;
 

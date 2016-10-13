@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver.internals;
+package reactor.kafka.inbound.internals;
 
 import java.time.Duration;
 import java.util.Map;
@@ -34,9 +34,9 @@ import org.slf4j.LoggerFactory;
 
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Scheduler;
-import reactor.kafka.receiver.Receiver;
-import reactor.kafka.receiver.ReceiverMessage;
-import reactor.kafka.receiver.ReceiverOffset;
+import reactor.kafka.inbound.KafkaInbound;
+import reactor.kafka.inbound.InboundRecord;
+import reactor.kafka.inbound.Offset;
 import reactor.kafka.util.TestUtils;
 
 public class TestableReceiver {
@@ -45,15 +45,15 @@ public class TestableReceiver {
 
     public static final TopicPartition NON_EXISTENT_PARTITION = new TopicPartition("non-existent", 0);
 
-    private Flux<ReceiverMessage<Integer, String>> kafkaFlux;
+    private Flux<InboundRecord<Integer, String>> kafkaFlux;
     private KafkaReceiver<Integer, String> kafkaReceiver;
 
-    public TestableReceiver(Receiver<Integer, String> kafkaReceiver, Flux<ReceiverMessage<Integer, String>> kafkaFlux) {
+    public TestableReceiver(KafkaInbound<Integer, String> kafkaReceiver, Flux<InboundRecord<Integer, String>> kafkaFlux) {
         this.kafkaReceiver = (KafkaReceiver<Integer, String>) kafkaReceiver;
         this.kafkaFlux = kafkaFlux;
     }
 
-    public Flux<ReceiverMessage<Integer, String>> kafkaFlux() {
+    public Flux<InboundRecord<Integer, String>> kafkaFlux() {
         return kafkaFlux;
     }
 
@@ -67,7 +67,7 @@ public class TestableReceiver {
         return commitOffsets;
     }
 
-    public Flux<ReceiverMessage<Integer, String>> withManualCommitFailures(boolean retriable, int failureCount,
+    public Flux<InboundRecord<Integer, String>> withManualCommitFailures(boolean retriable, int failureCount,
             Semaphore successSemaphore, Semaphore failureSemaphore) {
         AtomicInteger retryCount = new AtomicInteger();
         if (retriable)
@@ -121,7 +121,7 @@ public class TestableReceiver {
         TestUtils.waitUntil("Receiver not closed", null, closed -> closed.get(), receiverClosed, Duration.ofMillis(10000));
     }
 
-    public static void setNonExistentPartition(ReceiverOffset offset) {
+    public static void setNonExistentPartition(Offset offset) {
         try {
             MemberModifier.field(offset.getClass(), "topicPartition").set(offset, NON_EXISTENT_PARTITION);
         } catch (IllegalArgumentException | IllegalAccessException e) {

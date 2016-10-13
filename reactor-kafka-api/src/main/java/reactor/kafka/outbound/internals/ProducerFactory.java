@@ -14,33 +14,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver.internals;
+package reactor.kafka.outbound.internals;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.KafkaProducer;
 
-import reactor.kafka.receiver.ReceiverMessage;
-import reactor.kafka.receiver.ReceiverOffset;
+import reactor.kafka.outbound.OutboundOptions;
 
-public class KafkaMessage<K, V> implements ReceiverMessage<K, V> {
+public class ProducerFactory {
 
-    private final ConsumerRecord<K, V> consumerRecord;
-    private final ReceiverOffset consumerOffset;
+    public static final ProducerFactory INSTANCE = new ProducerFactory();
 
-    public KafkaMessage(ConsumerRecord<K, V> consumerRecord, ReceiverOffset consumerOffset) {
-        this.consumerRecord = consumerRecord;
-        this.consumerOffset = consumerOffset;
+    private ProducerFactory() {
     }
 
-    public ConsumerRecord<K, V> record() {
-        return consumerRecord;
-    }
-
-    public ReceiverOffset offset() {
-        return consumerOffset;
-    }
-
-    @Override
-    public String toString() {
-        return String.valueOf(consumerRecord);
+    public static <K, V> KafkaProducer<K, V> createProducer(OutboundOptions<K, V> senderOptions) {
+        return new KafkaProducer<>(senderOptions.producerProperties());
     }
 }

@@ -45,11 +45,11 @@ import net.sourceforge.argparse4j.inf.Namespace;
 import reactor.core.Cancellation;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.kafka.receiver.ReceiverOptions;
-import reactor.kafka.receiver.Receiver;
-import reactor.kafka.receiver.ReceiverMessage;
-import reactor.kafka.sender.SenderOptions;
-import reactor.kafka.sender.internals.KafkaSender;
+import reactor.kafka.inbound.InboundOptions;
+import reactor.kafka.inbound.KafkaInbound;
+import reactor.kafka.inbound.InboundRecord;
+import reactor.kafka.outbound.OutboundOptions;
+import reactor.kafka.outbound.KafkaOutbound;
 
 public class EndToEndLatency {
 
@@ -308,8 +308,8 @@ public class EndToEndLatency {
     }
 
     static class ReactiveEndToEndLatency extends AbstractEndToEndLatency {
-        final KafkaSender<byte[], byte[]> sender;
-        final Flux<ReceiverMessage<byte[], byte[]>> flux;
+        final KafkaOutbound<byte[], byte[]> sender;
+        final Flux<InboundRecord<byte[], byte[]>> flux;
         final LinkedBlockingQueue<ConsumerRecord<byte[], byte[]>> receiveQueue;
         final Semaphore sendSemaphore = new Semaphore(0);
         final Semaphore assignSemaphore = new Semaphore(0);
@@ -317,15 +317,17 @@ public class EndToEndLatency {
 
         ReactiveEndToEndLatency(Map<String, Object> consumerPropsOverride, Map<String, Object> producerPropsOverride, String bootstrapServers, String topic) {
             super(consumerPropsOverride, producerPropsOverride, bootstrapServers, topic);
-            sender = new KafkaSender<>(new SenderOptions<>(producerProps));
-            flux = Receiver.create(new ReceiverOptions<byte[], byte[]>(consumerProps))
-                           .doOnPartitionsAssigned(partitions -> {
-                                   if (assignSemaphore.availablePermits() == 0) {
-                                       partitions.forEach(p -> p.seekToEnd());
-                                       assignSemaphore.release();
-                                   }
-                               })
-                           .receive(Collections.singleton(topic));
+            sender = KafkaOutbound.create(OutboundOptions.create(producerProps));
+            InboundOptions<byte[], byte[]> inboundOptions = InboundOptions.<byte[], byte[]>create(consumerProps)
+                    .addAssignListener(partitions -> {
+                            if (assignSemaphore.availablePermits() == 0) {
+                                partitions.forEach(p -> p.seekToEnd());
+                                assignSemaphore.release();
+                            }
+                        })
+                    .subscription(Collections.singleton(topic));
+            flux = KafkaInbound.create(inboundOptions)
+                           .receive();
             receiveQueue = new LinkedBlockingQueue<>();
             System.out.println("Running latency test using Reactive API, class=" + this.getClass().getName());
         }
@@ -339,7 +341,7 @@ public class EndToEndLatency {
             }
         }
         public Iterator<ConsumerRecord<byte[], byte[]>> sendAndReceive(String topic, byte[] message, long timeout) throws Exception {
-            sender.sendAll(Mono.just(new ProducerRecord<byte[], byte[]>(topic, message)))
+            sender.send(Mono.just(new ProducerRecord<byte[], byte[]>(topic, message)))
                   .doOnSuccess(s -> sendSemaphore.release())
                   .subscribe();
             sendSemaphore.acquire();

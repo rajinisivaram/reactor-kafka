@@ -14,31 +14,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver;
+package reactor.kafka.outbound;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-
+import org.apache.kafka.clients.producer.RecordMetadata;
 
 /**
- * Represents an incoming message dispatched by {@link KafkaFlux}.
- *
- * @param <K> Key type
- * @param <V> Value type
+ * Response metadata for an outbound record that was acknowledged by Kafka.
+ * This response also includes the correlation metadata provided in {@link OutboundRecord}
+ * that was not sent to Kafka.
  */
-public interface ReceiverMessage<K, V> {
+public interface OutboundResponse<T> {
 
     /**
-     * Returns the Kafka consumer record associated with this instance.
+     * Returns the record metadata returned by Kafka.
      */
-    ConsumerRecord<K, V> record();
+    RecordMetadata recordMetadata();
 
     /**
-     * Returns an acknowlegeable offset instance that should be acknowledged after this
-     * message record has been consumed if the ack mode is {@link AckMode#MANUAL_ACK} or
-     * {@link AckMode#MANUAL_COMMIT}. If ack mode is {@value AckMode#MANUAL_COMMIT},
-     * {@link ReceiverOffset#commit()} must be invoked to commit all acknowledged records.
+     * Returns the correlation metadata associated with this instance to enable this
+     * response to be matched with the corresponding {@link OutboundRecord} that was sent to Kafka.
      */
-    ReceiverOffset offset();
-
-
+    T correlationMetadata();
 }

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver.internals;
+package reactor.kafka.inbound.internals;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,7 +26,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -48,21 +47,19 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import reactor.kafka.receiver.Receiver;
-import reactor.kafka.receiver.ReceiverMessage;
-import reactor.kafka.receiver.ReceiverOffset;
-import reactor.kafka.receiver.ReceiverOptions;
-import reactor.kafka.receiver.AckMode;
-import reactor.kafka.receiver.ReceiverPartition;
-import reactor.kafka.receiver.internals.CommittableBatch.CommitArgs;
+import reactor.kafka.inbound.AckMode;
+import reactor.kafka.inbound.KafkaInbound;
+import reactor.kafka.inbound.InboundRecord;
+import reactor.kafka.inbound.Offset;
+import reactor.kafka.inbound.InboundOptions;
+import reactor.kafka.inbound.Partition;
+import reactor.kafka.inbound.internals.CommittableBatch.CommitArgs;
 
-public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceListener {
+public class KafkaReceiver<K, V> implements KafkaInbound<K, V>, ConsumerRebalanceListener {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaReceiver.class.getName());
 
-    private final ReceiverOptions<K, V> receiverOptions;
-    private final List<Consumer<Collection<ReceiverPartition>>> assignListeners = new ArrayList<>();
-    private final List<Consumer<Collection<ReceiverPartition>>> revokeListeners = new ArrayList<>();
+    private final InboundOptions<K, V> receiverOptions;
     private final List<Flux<? extends Event<?>>> fluxList = new ArrayList<>();
     private final List<Cancellation> cancellations = new ArrayList<>();
     private final AtomicLong requestsPending = new AtomicLong();
@@ -80,54 +77,21 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
     private HeartbeatEvent heartbeatEvent;
     private CommitEvent commitEvent;
     private Flux<Event<?>> eventFlux;
-    private Flux<ReceiverMessage<K, V>> consumerFlux;
+    private Flux<InboundRecord<K, V>> consumerFlux;
     private KafkaConsumer<K, V> consumer;
 
     public enum EventType {
         INIT, POLL, HEARTBEAT, COMMIT, CLOSE
     }
 
-    public KafkaReceiver(ReceiverOptions<K, V> receiverOptions) {
+    public KafkaReceiver(InboundOptions<K, V> receiverOptions) {
         this.receiverOptions = receiverOptions.toImmutable();
         this.eventScheduler = Schedulers.newSingle("reactive-kafka-" + receiverOptions.groupId());
     }
 
     @Override
-    public Flux<ReceiverMessage<K, V>> receive(Collection<String> topics) {
-        return createConsumerFlux((flux) -> consumer.subscribe(topics, this));
-    }
-
-    @Override
-    public Flux<ReceiverMessage<K, V>> receive(Pattern pattern) {
-        return createConsumerFlux((flux) -> consumer.subscribe(pattern, this));
-    }
-
-    @Override
-    public Flux<ReceiverMessage<K, V>> receivePartitions(Collection<TopicPartition> topicPartitions) {
-        return createConsumerFlux((flux) -> {
-                consumer.assign(topicPartitions);
-                onPartitionsAssigned(topicPartitions);
-            });
-    }
-
-    /**
-     * Adds a listener for partition assignment when group management is used. Applications can
-     * use this listener to seek to different offsets of the assigned partitions using
-     * any of the seek methods in {@link ReceiverPartition}.
-     */
-    public Receiver<K, V> doOnPartitionsAssigned(Consumer<Collection<ReceiverPartition>> onAssign) {
-        assignListeners.add(onAssign);
-        return this;
-    }
-
-    /**
-     * Adds a listener for partition revocation when group management is used. Applications
-     * can use this listener to commit offsets when ack mode is {@value AckMode#MANUAL_COMMIT}.
-     * Acknowledged offsets are committed automatically on revocation for other commit modes.
-     */
-    public Receiver<K, V> doOnPartitionsRevoked(Consumer<Collection<ReceiverPartition>> onRevoke) {
-        revokeListeners.add(onRevoke);
-        return this;
+    public Flux<InboundRecord<K, V>> receive() {
+        return createConsumerFlux((flux) -> receiverOptions.subscriber(this).accept(consumer));
     }
 
     @Override
@@ -135,7 +99,7 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
         log.debug("onPartitionsAssigned {}", partitions);
         // onAssign methods may perform seek. It is safe to use the consumer here since we are in a poll()
         if (partitions.size() > 0) {
-            for (Consumer<Collection<ReceiverPartition>> onAssign : assignListeners)
+            for (Consumer<Collection<Partition>> onAssign : receiverOptions.assignListeners())
                 onAssign.accept(toSeekable(partitions));
         }
     }
@@ -146,13 +110,13 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
         if (partitions.size() > 0) {
             // It is safe to use the consumer here since we are in a poll()
             commitEvent.runIfRequired(true);
-            for (Consumer<Collection<ReceiverPartition>> onRevoke : revokeListeners) {
+            for (Consumer<Collection<Partition>> onRevoke : receiverOptions.revokeListeners()) {
                 onRevoke.accept(toSeekable(partitions));
             }
         }
     }
 
-    private Flux<ReceiverMessage<K, V>> createConsumerFlux(Consumer<Flux<ReceiverMessage<K, V>>> kafkaSubscribeOrAssign) {
+    private Flux<InboundRecord<K, V>> createConsumerFlux(Consumer<Flux<InboundRecord<K, V>>> kafkaSubscribeOrAssign) {
         if (consumerFlux != null)
             throw new IllegalStateException("Multiple subscribers are not supported for KafkaFlux");
 
@@ -194,10 +158,14 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
         return commitEvent.commitBatch;
     }
 
-    private Collection<ReceiverPartition> toSeekable(Collection<TopicPartition> partitions) {
-        List<ReceiverPartition> seekableList = new ArrayList<>(partitions.size());
+    public void close() {
+        cancel();
+    }
+
+    private Collection<Partition> toSeekable(Collection<TopicPartition> partitions) {
+        List<Partition> seekableList = new ArrayList<>(partitions.size());
         for (TopicPartition partition : partitions)
-            seekableList.add(new SeekableKafkaPartition(consumer, partition));
+            seekableList.add(new ReceiverPartition(consumer, partition));
         return seekableList;
     }
 
@@ -281,10 +249,10 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
         }
     }
 
-    private KafkaMessage<K, V> newConsumerMessage(ConsumerRecord<K, V> consumerRecord) {
+    private ReceiverRecord<K, V> newConsumerMessage(ConsumerRecord<K, V> consumerRecord) {
         TopicPartition topicPartition = new TopicPartition(consumerRecord.topic(), consumerRecord.partition());
         CommittableOffset committableOffset = new CommittableOffset(topicPartition, consumerRecord.offset());
-        KafkaMessage<K, V> message = new KafkaMessage<K, V>(consumerRecord, committableOffset);
+        ReceiverRecord<K, V> message = new ReceiverRecord<K, V>(consumerRecord, committableOffset);
         switch (receiverOptions.ackMode()) {
             case AUTO_ACK:
                 committableOffset.acknowledge();
@@ -330,8 +298,8 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
 
     private class InitEvent extends Event<ConsumerRecords<K, V>> {
 
-        private final Consumer<Flux<ReceiverMessage<K, V>>> kafkaSubscribeOrAssign;
-        InitEvent(Consumer<Flux<ReceiverMessage<K, V>>> kafkaSubscribeOrAssign) {
+        private final Consumer<Flux<InboundRecord<K, V>>> kafkaSubscribeOrAssign;
+        InitEvent(Consumer<Flux<InboundRecord<K, V>>> kafkaSubscribeOrAssign) {
             super(EventType.INIT);
             this.kafkaSubscribeOrAssign = kafkaSubscribeOrAssign;
         }
@@ -536,7 +504,7 @@ public class KafkaReceiver<K, V> implements Receiver<K, V>, ConsumerRebalanceLis
         }
     }
 
-    protected class CommittableOffset implements ReceiverOffset {
+    protected class CommittableOffset implements Offset {
 
         private final TopicPartition topicPartition;
         private final long commitOffset;

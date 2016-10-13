@@ -19,6 +19,7 @@ ext {
     junitVersion = '4.12'
     log4jVersion = '1.2.17'
     reactorVersion = '3.0.2.BUILD-SNAPSHOT'
+    reactorIpcVersion = '0.6.0.BUILD-SNAPSHOT'
     argparseVersion = '0.5.0'
     metricsVersion = '2.2.0'
     joptVersion = '4.9'
@@ -76,6 +77,7 @@ project(':reactor-kafka-api') {
     dependencies {
         compile "org.apache.kafka:kafka-clients:$kafkaVersion"
         compile "io.projectreactor:reactor-core:$reactorVersion"
+        compile "io.projectreactor.ipc:reactor-ipc:$reactorIpcVersion"
 
         testCompile "org.apache.kafka:kafka_$scalaVersion:$kafkaVersion"
         testCompile "org.apache.kafka:kafka-clients:$kafkaVersion:test"
@@ -100,6 +102,7 @@ project(':reactor-kafka-tools') {
         compile project(':reactor-kafka-api')
         compile "org.apache.kafka:kafka-clients:$kafkaVersion"
         compile "io.projectreactor:reactor-core:$reactorVersion"
+        compile "io.projectreactor.ipc:reactor-ipc:$reactorIpcVersion"
 
         compile "com.yammer.metrics:metrics-core:$metricsVersion"
         compile "net.sf.jopt-simple:jopt-simple:$joptVersion"
@@ -125,6 +128,7 @@ project(':reactor-kafka-samples') {
         compile project(':reactor-kafka-api')
         compile "org.apache.kafka:kafka-clients:$kafkaVersion"
         compile "io.projectreactor:reactor-core:$reactorVersion"
+        compile "io.projectreactor.ipc:reactor-ipc:$reactorIpcVersion"
 
         compile "com.yammer.metrics:metrics-core:$metricsVersion"
 

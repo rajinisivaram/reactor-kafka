@@ -33,13 +33,13 @@ import reactor.core.Cancellation;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-import reactor.kafka.receiver.ReceiverMessage;
-import reactor.kafka.receiver.ReceiverOptions;
-import reactor.kafka.receiver.AckMode;
-import reactor.kafka.receiver.Receiver;
-import reactor.kafka.receiver.ReceiverPartition;
-import reactor.kafka.sender.SenderOptions;
-import reactor.kafka.sender.internals.KafkaSender;
+import reactor.kafka.inbound.InboundRecord;
+import reactor.kafka.inbound.InboundOptions;
+import reactor.kafka.inbound.AckMode;
+import reactor.kafka.inbound.KafkaInbound;
+import reactor.kafka.inbound.Partition;
+import reactor.kafka.outbound.OutboundOptions;
+import reactor.kafka.outbound.KafkaOutbound;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
@@ -71,7 +71,7 @@ public class MirrorMakerReactive extends MirrorMaker {
         this.messageHandler = messageHandler;
 
         boolean sync = producerProps.getProperty("producer.type", "async").equals("sync");
-        SenderOptions<byte[], byte[]> senderOptions = new SenderOptions<>(toConfig(producerProps));
+        OutboundOptions<byte[], byte[]> senderOptions = OutboundOptions.create(toConfig(producerProps));
         sender = new MirrorMakerProducer(senderOptions, sync);
         mirrorMakerStreams = createConsumerStreams(numStreams, consumerProps, customRebalanceListener, whitelist);
         shutdownSemaphore = new Semaphore(1 - numStreams);
@@ -102,7 +102,7 @@ public class MirrorMakerReactive extends MirrorMaker {
             ConsumerRebalanceListener customRebalanceListener,
             String whitelist) throws IOException {
 
-        ReceiverOptions<byte[], byte[]> receiverOptions = new ReceiverOptions<>(toConfig(consumerConfigProps));
+        InboundOptions<byte[], byte[]> receiverOptions = InboundOptions.create(toConfig(consumerConfigProps));
         List<MirrorMakerStream> streams = new ArrayList<MirrorMakerStream>();
         String groupId = consumerConfigProps.getProperty(ConsumerConfig.GROUP_ID_CONFIG);
         for (int i = 0; i < numStreams; i++) {
@@ -129,33 +129,34 @@ public class MirrorMakerReactive extends MirrorMaker {
 
     public class MirrorMakerStream {
 
-        private final Flux<ReceiverMessage<byte[], byte[]>> kafkaFlux;
+        private final Flux<InboundRecord<byte[], byte[]>> kafkaFlux;
         private final ConsumerRebalanceListener customRebalanceListener;
         private Cancellation cancellation;
 
-        MirrorMakerStream(ReceiverOptions<byte[], byte[]> config,
+        MirrorMakerStream(InboundOptions<byte[], byte[]> config,
                 ConsumerRebalanceListener customRebalanceListener,
                 String groupId, String whitelist, int threadId) {
 
             this.customRebalanceListener = customRebalanceListener;
             config = config.commitInterval(Duration.ofMillis(offsetCommitIntervalMs))
-                           .ackMode(AckMode.MANUAL_ACK);
-            kafkaFlux = Receiver.create(config)
-                                .doOnPartitionsAssigned(this::onAssign)
-                                .doOnPartitionsRevoked(this::onRevoke)
-                                .receive(Pattern.compile(whitelist))
+                           .ackMode(AckMode.MANUAL_ACK)
+                           .addAssignListener(this::onAssign)
+                           .addRevokeListener(this::onRevoke)
+                           .subscription(Pattern.compile(whitelist));
+            kafkaFlux = KafkaInbound.create(config)
+                                .receive()
                                 .publishOn(Schedulers.newSingle("kafkaflux-" + threadId))
                                 .doOnNext(record -> processRecord(record));
         }
 
-        private void processRecord(ReceiverMessage<byte[], byte[]> message) {
+        private void processRecord(InboundRecord<byte[], byte[]> message) {
             Flux.fromIterable(messageHandler.handle(message.record()))
                 .concatMap(record -> sender.send(record))
                 .doOnComplete(() -> message.offset().acknowledge())
                 .subscribe();
         }
 
-        private void onAssign(Collection<ReceiverPartition> seekablePartitions) {
+        private void onAssign(Collection<Partition> seekablePartitions) {
             if (customRebalanceListener != null) {
                 Collection<TopicPartition> partitions = new HashSet<>();
                 seekablePartitions.forEach(p -> partitions.add(p.topicPartition()));
@@ -163,7 +164,7 @@ public class MirrorMakerReactive extends MirrorMaker {
             }
         }
 
-        private void onRevoke(Collection<ReceiverPartition> seekablePartitions) {
+        private void onRevoke(Collection<Partition> seekablePartitions) {
             if (customRebalanceListener != null) {
                 Collection<TopicPartition> partitions = new HashSet<>();
                 seekablePartitions.forEach(p -> partitions.add(p.topicPartition()));
@@ -184,15 +185,15 @@ public class MirrorMakerReactive extends MirrorMaker {
 
     private class MirrorMakerProducer {
         final boolean sync;
-        final KafkaSender<byte[], byte[]> sender;
+        final KafkaOutbound<byte[], byte[]> sender;
 
-        MirrorMakerProducer(SenderOptions<byte[], byte[]> config, boolean sync) {
+        MirrorMakerProducer(OutboundOptions<byte[], byte[]> config, boolean sync) {
             this.sync = sync;
-            sender = new KafkaSender<>(config);
+            sender = KafkaOutbound.create(config);
         }
 
         public Mono<?> send(ProducerRecord<byte[], byte[]> record) {
-            Mono<Void> result = sender.sendAll(Mono.just(record))
+            Mono<Void> result = sender.send(Mono.just(record))
                                                 .doOnError(e -> handleSendFailure(e));
             if (sync)
                 return Mono.just(result.block());

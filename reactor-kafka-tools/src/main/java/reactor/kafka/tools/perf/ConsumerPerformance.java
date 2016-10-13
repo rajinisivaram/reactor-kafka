@@ -37,9 +37,9 @@ import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import reactor.core.Cancellation;
-import reactor.kafka.receiver.ReceiverOptions;
-import reactor.kafka.receiver.Receiver;
-import reactor.kafka.receiver.ReceiverPartition;
+import reactor.kafka.inbound.InboundOptions;
+import reactor.kafka.inbound.KafkaInbound;
+import reactor.kafka.inbound.Partition;
 
 public class ConsumerPerformance {
 
@@ -292,14 +292,15 @@ public class ConsumerPerformance {
             AtomicLong lastReportTime  = new AtomicLong();
             System.out.println("Running consumer performance test using reactive API, class=" + this.getClass().getSimpleName());
 
-            ReceiverOptions<byte[], byte[]> receiverOptions = new ReceiverOptions<>(consumerProps);
-            Cancellation cancellation = Receiver.create(receiverOptions)
-                     .doOnPartitionsAssigned(partitions -> {
-                             for (ReceiverPartition p : partitions) {
-                                 p.seekToBeginning();
-                             }
-                         })
-                     .receive(Collections.singletonList(topic))
+            InboundOptions<byte[], byte[]> receiverOptions = InboundOptions.<byte[], byte[]>create(consumerProps)
+                    .addAssignListener(partitions -> {
+                            for (Partition p : partitions) {
+                                p.seekToBeginning();
+                            }
+                        })
+                    .subscription(Collections.singletonList(topic));
+            Cancellation cancellation = KafkaInbound.create(receiverOptions)
+                     .receive()
                      .subscribe(cr -> {
                              ConsumerRecord<byte[], byte[]> record = cr.record();
                              lastConsumedTime.set(System.currentTimeMillis());

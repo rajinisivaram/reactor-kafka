@@ -39,8 +39,8 @@ import org.springframework.kafka.test.utils.KafkaTestUtils;
 import kafka.admin.AdminUtils;
 import kafka.cluster.Partition;
 import kafka.utils.ZkUtils;
-import reactor.kafka.receiver.ReceiverOptions;
-import reactor.kafka.sender.SenderOptions;
+import reactor.kafka.inbound.InboundOptions;
+import reactor.kafka.outbound.OutboundOptions;
 import reactor.kafka.util.TestUtils;
 import scala.Option;
 
@@ -59,8 +59,8 @@ public class AbstractKafkaTest {
     @Rule
     public TestName testName = new TestName();
 
-    protected ReceiverOptions<Integer, String> receiverOptions;
-    protected SenderOptions<Integer, String> senderOptions;
+    protected InboundOptions<Integer, String> receiverOptions;
+    protected OutboundOptions<Integer, String> senderOptions;
 
     protected final List<List<Integer>> expectedMessages = new ArrayList<List<Integer>>(partitions);
     protected final List<List<Integer>> receivedMessages = new ArrayList<List<Integer>>(partitions);
@@ -73,19 +73,19 @@ public class AbstractKafkaTest {
         waitForTopic(topic, partitions, true);
     }
 
-    public ReceiverOptions<Integer, String> createReceiveOptions() {
+    public InboundOptions<Integer, String> createReceiveOptions() {
         receiverOptions = createReceiverOptions(null, testName.getMethodName());
         return receiverOptions;
     }
 
-    public SenderOptions<Integer, String> createSenderOptions() {
+    public OutboundOptions<Integer, String> createSenderOptions() {
         Map<String, Object> props = KafkaTestUtils.producerProps(embeddedKafka);
         props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, String.valueOf(requestTimeoutMillis));
-        senderOptions = new SenderOptions<>(props);
+        senderOptions = OutboundOptions.create(props);
         return senderOptions;
     }
 
-    public ReceiverOptions<Integer, String> createReceiverOptions(Map<String, Object> propsOverride, String groupId) {
+    public InboundOptions<Integer, String> createReceiverOptions(Map<String, Object> propsOverride, String groupId) {
         Map<String, Object> props = KafkaTestUtils.consumerProps("", "false", embeddedKafka);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, String.valueOf(sessionTimeoutMillis));
@@ -94,7 +94,7 @@ public class AbstractKafkaTest {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "2");
         if (propsOverride != null)
             props.putAll(propsOverride);
-        receiverOptions = new ReceiverOptions<>(props);
+        receiverOptions = InboundOptions.create(props);
         receiverOptions.commitInterval(Duration.ofMillis(50));
         receiverOptions.maxAutoCommitAttempts(1);
         return receiverOptions;

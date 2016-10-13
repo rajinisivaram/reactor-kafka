@@ -14,33 +14,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.sender;
+package reactor.kafka.outbound;
+
 
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.PartitionInfo;
 import org.reactivestreams.Publisher;
 
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
-import reactor.kafka.sender.internals.KafkaSender;
-import reactor.util.function.Tuple2;
+import reactor.ipc.Outbound;
+import reactor.kafka.outbound.internals.KafkaSender;
 
 /**
- * Reactive sender that sends messages to Kafka topic partitions. The sender is thread-safe
+ * Reactive producer that sends messages to Kafka topic partitions. The producer is thread-safe
  * and can be used to send messages to multiple partitions. It is recommended that a single
- * sender is shared for each message type in a client application.
+ * producer is shared for each message type in a client application.
  *
  * @param <K> outgoing message key type
  * @param <V> outgoing message value type
  */
-public interface Sender<K, V> {
+public interface KafkaOutbound<K, V> extends Outbound<ProducerRecord<K, V>> {
 
     /**
-     * Creates a Kafka sender that appends messages to Kafka topic partitions.
+     * Creates a Kafka producer that appends messages to Kafka topic partitions.
      */
-    public static <K, V> Sender<K, V> create(SenderOptions<K, V> options) {
+    public static <K, V> KafkaOutbound<K, V> create(OutboundOptions<K, V> options) {
         return new KafkaSender<>(options);
     }
 
@@ -53,16 +52,16 @@ public interface Sender<K, V> {
      * Example usage:
      * <pre>
      * {@code
-     *     sender.send(Flux.range(1, count)
-     *                     .map(i -> Tuples.of(new ProducerRecord<>(topic, key(i), message(i)), i)))
-     *           .doOnNext(r -> System.out.println("Message #" + r.getT2() + " metadata=" + r.getT1()));
+     *     outbound.send(Flux.range(1, count)
+     *                     .map(i -> OutboundRecord.create(new ProducerRecord<>(topic, key(i), message(i)), i)))
+     *           .doOnNext(r -> System.out.println("Message #" + r.correlationMetadata() + " metadata=" + r.recordMetadata()));
      * }
      * </pre>
      *
      * @param records Records to send to Kafka with additional data of type <T> included in the returned flux
      * @return Flux of Kafka response record metadata along with the corresponding request correlation data
      */
-    public <T> Flux<Tuple2<RecordMetadata, T>> send(Publisher<Tuple2<ProducerRecord<K, V>, T>> records);
+    <T> Flux<OutboundResponse<T>> sendAll(Publisher<OutboundRecord<K, V, T>> records);
 
     /**
      * Sends a sequence of records to Kafka and returns a flux of response record metadata including
@@ -74,9 +73,9 @@ public interface Sender<K, V> {
      * <pre>
      * {@code
      *     source = Flux.range(1, count)
-     *                  .map(i -> Tuples.of(new ProducerRecord<>(topic, key(i), message(i)), i));
-     *     sender.send(source, Schedulers.newSingle("send"), 1024, false)
-     *           .doOnNext(r -> System.out.println("Message #" + r.getT2() + " metadata=" + r.getT1()));
+     *                  .map(i -> OutboundRecord.create(new ProducerRecord<>(topic, key(i), message(i)), i));
+     *     outbound.send(source, Schedulers.newSingle("send"), 1024, false)
+     *           .doOnNext(r -> System.out.println("Message #" + r.correlationMetadata() + " metadata=" + r.recordMetadata()));
      * }
      * </pre>
      *
@@ -86,25 +85,18 @@ public interface Sender<K, V> {
      * @param delayError If false, send terminates when a response indicates failure, otherwise send is attempted for all records
      * @return Flux of Kafka response record metadata along with the corresponding request correlation data
      */
-    public <T> Flux<Tuple2<RecordMetadata, T>> send(Publisher<Tuple2<ProducerRecord<K, V>, T>> records,
+    <T> Flux<OutboundResponse<T>> sendAll(Publisher<OutboundRecord<K, V, T>> records,
             Scheduler scheduler, int maxInflight, boolean delayError);
-
-    /**
-     * Sends a sequence of records to Kafka.
-     * @return Mono that completes when all records are delivered to Kafka. The mono fails if any
-     *         record could not be successfully delivered to Kafka.
-     */
-    public Mono<Void> sendAll(Publisher<ProducerRecord<K, V>> records);
 
     /**
      * Returns partition information for the specified topic. This is useful for
      * choosing partitions to which records are sent if default partition assignor is not used.
      */
-    public Flux<PartitionInfo> partitionsFor(String topic);
+    Flux<PartitionInfo> partitionsFor(String topic);
 
     /**
      * Closes this producer and releases all resources allocated to it.
      */
-    public void close();
+    void close();
 
 }

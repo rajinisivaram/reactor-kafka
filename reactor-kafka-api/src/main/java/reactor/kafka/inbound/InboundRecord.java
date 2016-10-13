@@ -14,20 +14,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.sender.internals;
+package reactor.kafka.inbound;
 
-import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 
-import reactor.kafka.sender.SenderOptions;
 
-public class ProducerFactory {
+/**
+ * Represents an incoming message dispatched by {@link KafkaInbound}.
+ *
+ * @param <K> Key type
+ * @param <V> Value type
+ */
+public interface InboundRecord<K, V> {
 
-    public static final ProducerFactory INSTANCE = new ProducerFactory();
+    /**
+     * Returns the Kafka consumer record associated with this instance.
+     */
+    ConsumerRecord<K, V> record();
 
-    private ProducerFactory() {
-    }
-
-    public static <K, V> KafkaProducer<K, V> createProducer(SenderOptions<K, V> senderOptions) {
-        return new KafkaProducer<>(senderOptions.producerProperties());
-    }
+    /**
+     * Returns an acknowlegeable offset instance that should be acknowledged after this
+     * message record has been consumed if the ack mode is {@link AckMode#MANUAL_ACK} or
+     * {@link AckMode#MANUAL_COMMIT}. If ack mode is {@value AckMode#MANUAL_COMMIT},
+     * {@link Offset#commit()} must be invoked to commit all acknowledged records.
+     */
+    Offset offset();
 }

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.sender.internals;
+package reactor.kafka.outbound.internals;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -36,34 +36,34 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import reactor.kafka.sender.Sender;
-import reactor.kafka.sender.SenderOptions;
+import reactor.kafka.outbound.KafkaOutbound;
+import reactor.kafka.outbound.OutboundOptions;
+import reactor.kafka.outbound.OutboundRecord;
+import reactor.kafka.outbound.OutboundResponse;
 import reactor.util.concurrent.QueueSupplier;
-import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
 
 /**
- * Reactive sender that sends messages to Kafka topic partitions. The sender is thread-safe
+ * Reactive producer that sends messages to Kafka topic partitions. The producer is thread-safe
  * and can be used to send messages to multiple partitions. It is recommended that a single
  * producer is shared for each message type in a client.
  *
  * @param <K> outgoing message key type
  * @param <V> outgoing message value type
  */
-public class KafkaSender<K, V> implements Sender<K, V> {
+public class KafkaSender<K, V> implements KafkaOutbound<K, V> {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaSender.class.getName());
 
     private final Mono<KafkaProducer<K, V>> producerMono;
     private final AtomicBoolean hasProducer = new AtomicBoolean();
-    private final SenderOptions<K, V> senderOptions;
+    private final OutboundOptions<K, V> senderOptions;
     private final Scheduler scheduler = Schedulers.single();
 
     /**
-     * Constructs a sender with the specified configuration properties. All Kafka
+     * Constructs a producer with the specified configuration properties. All Kafka
      * producer properties are supported.
      */
-    public KafkaSender(SenderOptions<K, V> options) {
+    public KafkaSender(OutboundOptions<K, V> options) {
         this.senderOptions = options.toImmutable();
         this.producerMono = Mono.fromCallable(() -> {
                 return ProducerFactory.createProducer(senderOptions);
@@ -77,27 +77,19 @@ public class KafkaSender<K, V> implements Sender<K, V> {
      * @see reactor.kafka.sender.Sender#send(org.reactivestreams.Publisher)
      */
     @Override
-    public <T> Flux<Tuple2<RecordMetadata, T>> send(Publisher<Tuple2<ProducerRecord<K, V>, T>> records) {
-        Flux<Tuple2<RecordMetadata, T>> flux = outboundFlux(records, false);
+    public <T> Flux<OutboundResponse<T>> sendAll(Publisher<OutboundRecord<K, V, T>> records) {
+        Flux<OutboundResponse<T>> flux = outboundFlux(records, false);
         return flux.publishOn(scheduler, QueueSupplier.SMALL_BUFFER_SIZE);
     }
 
-    /*
-     * (non-Javadoc)
-     * @see reactor.kafka.sender.Sender#send(org.reactivestreams.Publisher, reactor.core.scheduler.Scheduler, int, boolean)
-     */
     @Override
-    public <T> Flux<Tuple2<RecordMetadata, T>> send(Publisher<Tuple2<ProducerRecord<K, V>, T>> records,
+    public <T> Flux<OutboundResponse<T>> sendAll(Publisher<OutboundRecord<K, V, T>> records,
             Scheduler scheduler, int maxInflight, boolean delayError) {
         return outboundFlux(records, delayError).publishOn(scheduler, maxInflight);
     }
 
-    /*
-     * (non-Javadoc)
-     * @see reactor.kafka.sender.Sender#sendAll(org.reactivestreams.Publisher)
-     */
     @Override
-    public Mono<Void> sendAll(Publisher<ProducerRecord<K, V>> records) {
+    public Mono<Void> send(Publisher<? extends ProducerRecord<K, V>> records) {
         // TODO: Check that Mono can't block sender network thread
         return new Mono<Void>() {
             @Override
@@ -126,10 +118,10 @@ public class KafkaSender<K, V> implements Sender<K, V> {
             producerMono.block().close(senderOptions.closeTimeout().toMillis(), TimeUnit.MILLISECONDS);
     }
 
-    private <T> Flux<Tuple2<RecordMetadata, T>> outboundFlux(Publisher<Tuple2<ProducerRecord<K, V>, T>> records, boolean delayError) {
-        return new Flux<Tuple2<RecordMetadata, T>>() {
+    private <T> Flux<OutboundResponse<T>> outboundFlux(Publisher<OutboundRecord<K, V, T>> records, boolean delayError) {
+        return new Flux<OutboundResponse<T>>() {
             @Override
-            public void subscribe(Subscriber<? super Tuple2<RecordMetadata, T>> s) {
+            public void subscribe(Subscriber<? super OutboundResponse<T>> s) {
                 records.subscribe(new SendSubscriber<T>(s, delayError));
             }
         };
@@ -173,24 +165,24 @@ public class KafkaSender<K, V> implements Sender<K, V> {
                 return;
             }
             inflight.incrementAndGet();
-            C correlator = correlator(m);
+            C correlationMetadata = correlationMetadata(m);
             try {
                 producer.send(producerRecord(m), (metadata, exception) -> {
                         boolean complete = inflight.decrementAndGet() == 0 && state == SubscriberState.OUTBOUND_DONE;
                         try {
                             if (exception == null) {
-                                handleResponse(metadata, correlator);
+                                handleResponse(metadata, correlationMetadata);
                                 if (complete)
                                     complete();
                             } else
-                                error(metadata, exception, correlator, complete);
+                                error(metadata, exception, correlationMetadata, complete);
                         } catch (Exception e) {
-                            error(metadata, e, correlator, complete);
+                            error(metadata, e, correlationMetadata, complete);
                         }
                     });
             } catch (Exception e) {
                 inflight.decrementAndGet();
-                error(null, e, correlator, true);
+                error(null, e, correlationMetadata, true);
             }
         }
 
@@ -226,41 +218,53 @@ public class KafkaSender<K, V> implements Sender<K, V> {
             }
         }
 
-        public void error(RecordMetadata metadata, Throwable t, C correlator, boolean complete) {
+        public void error(RecordMetadata metadata, Throwable t, C correlation, boolean complete) {
             log.error("error {}", t);
             firstException.compareAndSet(null, t);
             if (delayError)
-                handleResponse(metadata, correlator);
+                handleResponse(metadata, correlation);
             if (!delayError || complete)
                 onError(t);
         }
 
-        protected abstract void handleResponse(RecordMetadata metadata, C correlator);
+        protected abstract void handleResponse(RecordMetadata metadata, C correlation);
         protected abstract ProducerRecord<K, V> producerRecord(Q request);
-        protected abstract C correlator(Q request);
+        protected abstract C correlationMetadata(Q request);
     }
 
-    private class SendSubscriber<T> extends AbstractSendSubscriber<Tuple2<ProducerRecord<K, V>, T>, Tuple2<RecordMetadata, T>, T> {
+    private class SendSubscriber<T> extends AbstractSendSubscriber<OutboundRecord<K, V, T>, OutboundResponse<T>, T> {
 
-        SendSubscriber(Subscriber<? super Tuple2<RecordMetadata, T>> actual, boolean delayError) {
+        SendSubscriber(Subscriber<? super OutboundResponse<T>> actual, boolean delayError) {
            super(actual, delayError);
         }
 
         @Override
-        protected void handleResponse(RecordMetadata metadata, T correlator) {
-            actual.onNext(Tuples.of(metadata, correlator));
+        protected void handleResponse(RecordMetadata metadata, T correlation) {
+            OutboundResponse<T> response = new OutboundResponse<T>() {
+
+                @Override
+                public RecordMetadata recordMetadata() {
+                    return metadata;
+                }
+
+                @Override
+                public T correlationMetadata() {
+                    return correlation;
+                }
+
+            };
+            actual.onNext(response);
         }
 
         @Override
-        protected T correlator(Tuple2<ProducerRecord<K, V>, T> request) {
-            return request.getT2();
+        protected T correlationMetadata(OutboundRecord<K, V, T> request) {
+            return request.correlationMetadata();
         }
 
         @Override
-        protected ProducerRecord<K, V> producerRecord(Tuple2<ProducerRecord<K, V>, T> request) {
-            return request.getT1();
+        protected ProducerRecord<K, V> producerRecord(OutboundRecord<K, V, T> request) {
+            return request.record();
         }
-
     }
 
     private class SendSubscriberMono extends AbstractSendSubscriber<ProducerRecord<K, V>, Void, Void> {
@@ -270,11 +274,11 @@ public class KafkaSender<K, V> implements Sender<K, V> {
         }
 
         @Override
-        protected void handleResponse(RecordMetadata metadata, Void correlator) {
+        protected void handleResponse(RecordMetadata metadata, Void correlation) {
         }
 
         @Override
-        protected Void correlator(ProducerRecord<K, V> request) {
+        protected Void correlationMetadata(ProducerRecord<K, V> request) {
             return null;
         }
 

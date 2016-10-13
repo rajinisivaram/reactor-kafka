@@ -29,10 +29,10 @@ import org.slf4j.LoggerFactory;
 
 import reactor.core.Cancellation;
 import reactor.core.publisher.Flux;
-import reactor.kafka.receiver.Receiver;
-import reactor.kafka.receiver.ReceiverMessage;
-import reactor.kafka.receiver.ReceiverOffset;
-import reactor.kafka.receiver.ReceiverOptions;
+import reactor.kafka.inbound.KafkaInbound;
+import reactor.kafka.inbound.InboundRecord;
+import reactor.kafka.inbound.Offset;
+import reactor.kafka.inbound.InboundOptions;
 
 /**
  * Sample consumer application using Reactive API for Kafka.
@@ -52,7 +52,7 @@ public class SampleConsumer {
     private static final String BOOTSTRAP_SERVERS = "localhost:9092";
     private static final String TOPIC = "demo-topic";
 
-    private final ReceiverOptions<Integer, String> receiverOptions;
+    private final InboundOptions<Integer, String> inboundOptions;
     private final SimpleDateFormat dateFormat;
 
     public SampleConsumer(String bootstrapServers) {
@@ -63,22 +63,19 @@ public class SampleConsumer {
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "sample-group");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, IntegerDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        receiverOptions = new ReceiverOptions<Integer, String>(props);
-
+        inboundOptions = InboundOptions.create(props);
         dateFormat = new SimpleDateFormat("HH:mm:ss:SSS z dd MMM yyyy");
     }
 
     public Cancellation consumeMessages(String topic, CountDownLatch latch) {
 
-        Flux<ReceiverMessage<Integer, String>> kafkaFlux =
-                Receiver.create(receiverOptions)
-                        .doOnPartitionsAssigned(partitions -> log.debug("onPartitionsAssigned {}", partitions))
-                        .doOnPartitionsRevoked(partitions -> log.debug("onPartitionsRevoked {}", partitions))
-                        .receive(Collections.singleton(topic));
+        InboundOptions<Integer, String> options = inboundOptions.subscription(Collections.singleton(topic))
+                .addAssignListener(partitions -> log.debug("onPartitionsAssigned {}", partitions))
+                .addRevokeListener(partitions -> log.debug("onPartitionsRevoked {}", partitions));
+        Flux<InboundRecord<Integer, String>> kafkaFlux = KafkaInbound.create(options).receive();
         return kafkaFlux.subscribe(message -> {
-                ReceiverOffset offset = message.offset();
+                Offset offset = message.offset();
                 ConsumerRecord<Integer, String> record = message.record();
                 System.out.printf("Received message: topic-partition=%s offset=%d timestamp=%s key=%d value=%s\n",
                         offset.topicPartition(),
@@ -98,5 +95,4 @@ public class SampleConsumer {
         latch.await(10, TimeUnit.SECONDS);
         cancellation.dispose();
     }
-
 }

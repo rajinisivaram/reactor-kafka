@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver;
+package reactor.kafka.inbound;
 
 import org.apache.kafka.common.TopicPartition;
 
@@ -26,7 +26,7 @@ import reactor.core.publisher.Mono;
  * is {@link AckMode#MANUAL_COMMIT}.
  *
  */
-public interface ReceiverOffset {
+public interface Offset {
 
     /**
      * Returns the topic partition with which this offset is associated.
@@ -41,7 +41,7 @@ public interface ReceiverOffset {
     /**
      * Acknowledges the message associated with this offset. If ack mode is {@link AckMode#MANUAL_ACK},
      * the record will be committed automatically based on the commit configuration parameters
-     * {@link ReceiverOptions#commitInterval()} and {@link ReceiverOptions#commitBatchSize()}. If
+     * {@link InboundOptions#commitInterval()} and {@link InboundOptions#commitBatchSize()}. If
      * ack mode is {@link AckMode#MANUAL_COMMIT} it is the responsibility of the consuming application
      * to invoke {@link #commit()} to commit acknowledged records individually or in batches.
      * When an offset is acknowledged, it is assumed that all messages in this partition up to and

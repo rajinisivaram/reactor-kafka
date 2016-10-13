@@ -14,21 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-package reactor.kafka.receiver.internals;
+package reactor.kafka.inbound.internals;
 
 import java.util.Collections;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 
-import reactor.kafka.receiver.ReceiverPartition;
+import reactor.kafka.inbound.Partition;
 
-public class SeekableKafkaPartition implements ReceiverPartition {
+public class ReceiverPartition implements Partition {
 
     private final KafkaConsumer<?, ?> consumer;
     private final TopicPartition topicPartition;
 
-    public SeekableKafkaPartition(KafkaConsumer<?, ?> consumer, TopicPartition topicPartition) {
+    public ReceiverPartition(KafkaConsumer<?, ?> consumer, TopicPartition topicPartition) {
         this.consumer = consumer;
         this.topicPartition = topicPartition;
     }
