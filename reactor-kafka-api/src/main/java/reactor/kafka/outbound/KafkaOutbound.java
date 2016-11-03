@@ -23,7 +23,7 @@ import org.reactivestreams.Publisher;
 
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Scheduler;
-import reactor.ipc.Outbound;
+import reactor.ipc.connector.Outbound;
 import reactor.kafka.outbound.internals.KafkaSender;
 
 /**

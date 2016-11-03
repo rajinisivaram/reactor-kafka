@@ -16,10 +16,7 @@
  **/
 package reactor.kafka;
 
-import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.reactivestreams.Publisher;
@@ -27,11 +24,10 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
-import reactor.ipc.Inbound;
-import reactor.ipc.Outbound;
+import reactor.ipc.connector.Inbound;
+import reactor.ipc.connector.Outbound;
+import reactor.ipc.connector.ConnectedState;
 import reactor.ipc.connector.Connector;
-import reactor.ipc.connector.StreamEndpoint;
-import reactor.ipc.connector.StreamRemote;
 import reactor.kafka.inbound.internals.KafkaReceiver;
 import reactor.kafka.inbound.InboundOptions;
 import reactor.kafka.inbound.InboundRecord;
@@ -39,9 +35,7 @@ import reactor.kafka.outbound.OutboundOptions;
 import reactor.kafka.outbound.internals.KafkaSender;
 
 public class KafkaConnector<K, V> implements
-    Connector<InboundRecord<K, V>, ProducerRecord<K, V>, Inbound<InboundRecord<K, V>>, Outbound<ProducerRecord<K, V>>>,
-    BiConsumer<Inbound<InboundRecord<K, V>>, StreamEndpoint>,
-    Function<Outbound<ProducerRecord<K, V>>, StreamRemote> {
+    Connector<InboundRecord<K, V>, ProducerRecord<K, V>, Inbound<InboundRecord<K, V>>, Outbound<ProducerRecord<K, V>>> {
 
     private final InboundOptions<K, V> inboundOptions;
     private final OutboundOptions<K, V> outboundOptions;
@@ -73,7 +67,7 @@ public class KafkaConnector<K, V> implements
     }
 
     @Override
-    public Mono<Void> newHandler(BiFunction<? super Inbound<InboundRecord<K, V>>, ? super Outbound<ProducerRecord<K, V>>, ? extends Publisher<Void>> channelHandler) {
+    public Mono<? extends ConnectedState> newHandler(BiFunction<? super Inbound<InboundRecord<K, V>>, ? super Outbound<ProducerRecord<K, V>>, ? extends Publisher<Void>> channelHandler) {
         return Mono.create(sink -> {
                 KafkaReceiver<K, V> inbound = inboundOptions != null ? new KafkaReceiver<>(inboundOptions) : null;
                 KafkaSender<K, V> outbound = outboundOptions  != null ?  new KafkaSender<>(outboundOptions) : null;
@@ -85,7 +79,7 @@ public class KafkaConnector<K, V> implements
             });
     }
 
-    private void tryClose(KafkaReceiver<K, V> inbound, KafkaSender<K, V> outbound, MonoSink<Void> sink, Throwable t) {
+    private void tryClose(KafkaReceiver<K, V> inbound, KafkaSender<K, V> outbound, MonoSink<? extends ConnectedState> sink, Throwable t) {
         try {
             if (inbound != null)
                 inbound.close();
@@ -103,21 +97,4 @@ public class KafkaConnector<K, V> implements
         else
             sink.error(t);
     }
-
-    @Override
-    public <API> Mono<API> newBidirectional(Supplier<?> receiverSupplier, Class<? extends API> api) {
-        return newStreamSupport(receiverSupplier, api, this, this);
-    }
-
-    @Override
-    public StreamRemote apply(Outbound<ProducerRecord<K, V>> t) {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public void accept(Inbound<InboundRecord<K, V>> inbound, StreamEndpoint streamEndpoint) {
-        // TODO Auto-generated method stub
-    }
-
 }

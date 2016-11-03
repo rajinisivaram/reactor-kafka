@@ -16,7 +16,7 @@
  **/
 package reactor.kafka.inbound;
 
-import reactor.ipc.Inbound;
+import reactor.ipc.connector.Inbound;
 import reactor.kafka.inbound.internals.KafkaReceiver;
 
 /**
